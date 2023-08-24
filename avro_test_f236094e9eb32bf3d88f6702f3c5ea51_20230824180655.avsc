@@ -1,0 +1,374 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "provenance": [],
+      "include_colab_link": true
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/Sharkvault/AvscBuilder/blob/main/avro_test_f236094e9eb32bf3d88f6702f3c5ea51_20230824180655.avsc\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "markdown",
+      "source": [
+        "# Avsc Builder\n",
+        "The avsc oprojet is used to dynamically generate avro schemas based on certain information. Normally we can say get csv contianing tables and based on that gfo build a schema.\n"
+      ],
+      "metadata": {
+        "id": "6u6mu1HnPrAc"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# import everything\n",
+        "from logging import Logger, FileHandler\n",
+        "from pathlib import Path\n",
+        "from re import compile, escape\n",
+        "from typing import Union, List, Tuple\n",
+        "from datetime import datetime\n",
+        "from hashlib import md5\n",
+        "from json import dumps\n",
+        "from pandas import read_csv, DataFrame"
+      ],
+      "metadata": {
+        "id": "BEsZ5jKePDas"
+      },
+      "execution_count": 73,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# Create a logger\n",
+        "logger = Logger(\"me\")"
+      ],
+      "metadata": {
+        "id": "E-Mk3kT1PGNc"
+      },
+      "execution_count": 74,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# Create file finder\n",
+        "\n",
+        "def find_files(\n",
+        "    root_dir:Union[str,Path],\n",
+        "    regex_file_name_pattern:str,\n",
+        "    file_format:str=\"csv\"\n",
+        "    ) -> List[Path]:\n",
+        "  \"\"\"\n",
+        "    Using a specific directory traverse the directory\n",
+        "    and find all files ending with a specifc file format\n",
+        "    Each of those found files need to be valid regarding some pattern\n",
+        "\n",
+        "    Args:\n",
+        "      root_dir: top level directory to check for metadata files\n",
+        "      regex_file_name_pattern: pattern to look for in file names\n",
+        "      file_format: format of the file\n",
+        "\n",
+        "    Raises:\n",
+        "      FileNotFoundError:  root_dir does not exists\n",
+        "      NotADirectoryError:  root_dir is not a directory\n",
+        "\n",
+        "    Returns:\n",
+        "      List of file paths\n",
+        "\n",
+        "  \"\"\"\n",
+        "  if isinstance(root_dir,str):\n",
+        "    root_dir = Path(root_dir)\n",
+        "  if not root_dir.exists():\n",
+        "    err_msg = f\"The root directory {str(root_dir)} does not exist\"\n",
+        "    logger.error(err_msg)\n",
+        "    raise FileNotFoundError(err_msg)\n",
+        "  if not root_dir.is_dir():\n",
+        "    err_msg = f\"{root_dir} is not a directoy\"\n",
+        "    logger.error(err_msg)\n",
+        "    raise NotADirectoryError(err_msg)\n",
+        "\n",
+        "  pattern = compile(rf\"{regex_file_name_pattern}.*\\.{file_format}$\")\n",
+        "  found_files:List[Path] = []\n",
+        "  for found_file in root_dir.rglob(f\"*.{file_format}\"):\n",
+        "    if pattern.search(found_file.name):\n",
+        "      found_files.append(found_file)\n",
+        "\n",
+        "  return found_files\n",
+        "\n"
+      ],
+      "metadata": {
+        "id": "8mrIr4y1QI97"
+      },
+      "execution_count": 75,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "def write_file(\n",
+        "    path:Union[Path,str],\n",
+        "    file_name:str,\n",
+        "    content:str,\n",
+        "    logger:Logger):\n",
+        "  \"\"\"\n",
+        "    Writing the file to a location, creating if it doesnt exists\n",
+        "\n",
+        "    Args:\n",
+        "      path: Folder for the file\n",
+        "      file_name: Name of the file\n",
+        "      content: Content to be written to the file\n",
+        "      logger: Logger object for logging purposes\n",
+        "\n",
+        "    Raises:\n",
+        "      FileNotFoundError:  File does not exists and is not of type file\n",
+        "      NotADirectoryError:  Path is not a directory\n",
+        "\n",
+        "  \"\"\"\n",
+        "\n",
+        "  if isinstance(path,str):\n",
+        "    path = Path(path)\n",
+        "  if not path.exists():\n",
+        "    path.mkdir(f\"The path {str(path)} will be created\")\n",
+        "  if not path.is_dir():\n",
+        "    err_msg = f\"{path} is not a directoy\"\n",
+        "    logger.error(err_msg)\n",
+        "    raise NotADirectoryError(err_msg)\n",
+        "  # contains the full path to file inclusivly\n",
+        "  file_path = path.joinpath(file_name)\n",
+        "  if not file_path.exists():\n",
+        "    file_path.touch()\n",
+        "  if not file_path.is_file():\n",
+        "    err_msg = f\"{file_path} is not a file\"\n",
+        "    logger.error(err_msg)\n",
+        "    raise FileNotFoundError(err_msg)\n",
+        "  with open(file_path,'w') as file:\n",
+        "    file.writelines(content)\n",
+        ""
+      ],
+      "metadata": {
+        "id": "Y8Tc4obCR8-S"
+      },
+      "execution_count": 76,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "db2_to_avro = {\n",
+        "    'decimal': 'decimal',\n",
+        "    'numeric': 'decimal',\n",
+        "    'char': 'string',\n",
+        "    'int': 'int',\n",
+        "    'boolean': 'boolean',\n",
+        "    'date': 'date',\n",
+        "    'timestamp': 'timestamp',\n",
+        "    'clob':'string',\n",
+        "    'varchar':'string'\n",
+        "}\n",
+        "\n",
+        "def map_to_avro(df, db_type, logger:Logger):\n",
+        "    factory = {\"db2\": db2_to_avro}\n",
+        "    try:\n",
+        "      df['avrotype'] = df['datatype'].map(factory[db_type])\n",
+        "    except KeyError as ke:\n",
+        "      err_msg = f\"The key {db_type} cannot be found in the factory: {factory.keys()}\"\n",
+        "      logger.error(err_msg)\n",
+        "      raise KeyError(err_msg)\n",
+        "    return df\n"
+      ],
+      "metadata": {
+        "id": "q1V4TBRvPIzf"
+      },
+      "execution_count": 77,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "\n",
+        "def build_avsc_file(df, prefix:str=\"\") -> Tuple[str,str]:\n",
+        "  \"\"\"\n",
+        "    Building the avro schema file based on the df\n",
+        "\n",
+        "    Args\n",
+        "      df: Dataframe for the table\n",
+        "      prefix: Prefix for the table name (e.g. rw)\n",
+        "\n",
+        "    Returns\n",
+        "      str: Avroschema as json string\n",
+        "      str: Name of the table defined in the dataframe\n",
+        "  \"\"\"\n",
+        "  avro_fields = []\n",
+        "  avro_table_name = None\n",
+        "  for i, row in df.iterrows():\n",
+        "      avro_data_type = row['avrotype']\n",
+        "      if avro_data_type == 'decimal':\n",
+        "          avro_type = {\n",
+        "              'type': 'bytes',\n",
+        "              'logicalType': 'decimal',\n",
+        "              'precision': 38,\n",
+        "              'scale': 18\n",
+        "          }\n",
+        "      elif avro_data_type == 'int':\n",
+        "          avro_type = {\n",
+        "              'type': 'bytes',\n",
+        "              'logicalType': 'decimal',\n",
+        "              'precision': 38,\n",
+        "              'scale': 0\n",
+        "          }\n",
+        "      else:\n",
+        "          avro_type = 'string'\n",
+        "\n",
+        "      avro_field = {\n",
+        "          'name': row['fieldname'],\n",
+        "          'type': [avro_type, 'null']\n",
+        "      }\n",
+        "      avro_table_name = row['tablename']\n",
+        "      avro_fields.append(avro_field)\n",
+        "\n",
+        "  avro_schema = {\n",
+        "        \" type \" : \"record\",\n",
+        "        \" namespace \" : \"com.company.com\",\n",
+        "        \" name \" : f\"{prefix}_{avro_table_name}\",\n",
+        "        \" fields \" : avro_fields\n",
+        "      }\n",
+        "  return dumps(avro_schema), avro_table_name\n"
+      ],
+      "metadata": {
+        "id": "NSndmHyaft15"
+      },
+      "execution_count": 78,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "class AvscBuilder:\n",
+        "  def __init__(self, settings:dict, file_path:Path,logger:Logger):\n",
+        "    self.settings = settings\n",
+        "    self.logger = logger\n",
+        "    self.file_path = file_path\n",
+        "    self.df:DataFrame = None\n",
+        "    self.avsc = None\n",
+        "    self.table_name = None\n",
+        "\n",
+        "  def build(self):\n",
+        "    build_schemas = (\n",
+        "        self._create_df()\n",
+        "        ._lower_column_names()\n",
+        "        ._add_avro_column()\n",
+        "        ._construct_avsc_content()\n",
+        "        ._write_avsc_file()\n",
+        "    )\n",
+        "    return build_schemas\n",
+        "\n",
+        "  def _create_df(self):\n",
+        "    self.logger.info(f\"Reading file: {self.file_path}\")\n",
+        "    self.df = read_csv(self.file_path)\n",
+        "    return self\n",
+        "\n",
+        "  def _lower_column_names(self):\n",
+        "    self.df.columns = self.df.columns.str.lower()\n",
+        "    return self\n",
+        "\n",
+        "\n",
+        "  def _add_avro_column(self):\n",
+        "    self.df = map_to_avro(df=self.df,db_type=\"db2\",logger=self.logger)\n",
+        "    self.df[\"avrotype\"].fillna(\"string\", inplace=True)\n",
+        "    return self\n",
+        "\n",
+        "  def _construct_avsc_content(self):\n",
+        "    self.avsc, self.table_name = build_avsc_file(self.df)\n",
+        "    return self\n",
+        "\n",
+        "  def _build_table_name(self) -> str:\n",
+        "    current_time = datetime.now().strftime(\"%Y%m%d%H%M%S\")\n",
+        "    md5_content = md5(self.avsc.encode())\\\n",
+        "      .hexdigest()\n",
+        "    return f\"{self.table_name}_{md5_content}_{current_time}.avsc\"\n",
+        "\n",
+        "  def _write_avsc_file(self):\n",
+        "    logger.info(self.avsc)\n",
+        "    write_file(\n",
+        "        path=\"./\",\n",
+        "        file_name=self._build_table_name(),\n",
+        "        content=self.avsc,\n",
+        "        logger=logger\n",
+        "        )\n",
+        "\n",
+        "\n",
+        "for file_path in find_files(root_dir=\"./\",file_format=\"csv\",regex_file_name_pattern=\"test\"):\n",
+        "  AvscBuilder(file_path=file_path,settings={},logger=logger)\\\n",
+        "    .build()"
+      ],
+      "metadata": {
+        "id": "jIrvId0tZK2K"
+      },
+      "execution_count": 81,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [],
+      "metadata": {
+        "id": "1GoRjW40wlFm"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [],
+      "metadata": {
+        "id": "uyZs_M4VwlQD"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [],
+      "metadata": {
+        "id": "bHTz7gIjvxWo"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [],
+      "metadata": {
+        "id": "7OPCFgtUqY7z"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [],
+      "metadata": {
+        "id": "lv-wa4SQaqep"
+      },
+      "execution_count": null,
+      "outputs": []
+    }
+  ]
+}
